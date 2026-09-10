@@ -24,7 +24,8 @@ import {
   canonicalProjectRoot,
   getProjectRunsRoot,
   recordAgyCall,
-  requireEnabledProject
+  requireEnabledProject,
+  requireRegisteredConversation
 } from "./projects.js";
 
 const RUN_ID_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]{8}$/;
@@ -335,13 +336,15 @@ export async function applyStructuredOperations(isolatedWorkspace, structuredOut
 export async function executeIsolated({
   task,
   projectRoot,
+  conversationId,
   model,
   effort,
   timeoutSeconds = 600,
   maxResponseChars = 12000,
   verification = "none",
   verificationTimeoutSeconds = 300,
-  allowUntrustedVerification = false
+  allowUntrustedVerification = false,
+  agyRunner = runAgy
 }) {
   if (verification !== "none" && !allowUntrustedVerification) {
     throw new Error(
@@ -349,6 +352,9 @@ export async function executeIsolated({
     );
   }
   const source = await requireEnabledProject(projectRoot);
+  if (conversationId) {
+    await requireRegisteredConversation(source, conversationId);
+  }
   const runsRoot = getProjectRunsRoot(source);
   await mkdir(runsRoot, { recursive: true });
   const runId = createRunId();
@@ -366,6 +372,7 @@ export async function executeIsolated({
     source,
     isolatedWorkspace,
     task,
+    requestedConversationId: conversationId || null,
     verification
   });
 
@@ -379,9 +386,10 @@ export async function executeIsolated({
 
   let agyResult;
   try {
-    agyResult = await runAgy({
+    agyResult = await agyRunner({
       prompt: delegatedPrompt,
       workingDirectory: source,
+      conversationId,
       model,
       effort,
       timeoutSeconds,
@@ -401,6 +409,18 @@ export async function executeIsolated({
       warnings: [],
       events: []
     };
+  }
+
+  const returnedConversationId = agyResult.conversationId || null;
+  if (
+    agyResult.ok &&
+    conversationId &&
+    returnedConversationId !== conversationId
+  ) {
+    agyResult.ok = false;
+    agyResult.status = "ERROR";
+    agyResult.error =
+      "Antigravity returned a different conversation than the one requested";
   }
 
   let appliedOperations = [];
@@ -448,7 +468,9 @@ export async function executeIsolated({
     source,
     isolatedWorkspace,
     task,
-    conversationId: agyResult.conversationId || null,
+    requestedConversationId: conversationId || null,
+    returnedConversationId,
+    conversationId: conversationId || returnedConversationId,
     agyStatus: agyResult.status,
     response:
       agyResult.structuredOutput?.summary || agyResult.response || "",
@@ -471,6 +493,7 @@ export async function executeIsolated({
     runId,
     result: {
       ...agyResult,
+      conversationId: metadata.conversationId,
       response: metadata.response
     }
   });

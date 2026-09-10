@@ -18,8 +18,10 @@ const PROJECT_DIR = ".antigravity-mcp";
 const PROJECT_FILE = "project.json";
 const SESSIONS_FILE = "sessions.jsonl";
 const STATE_SCHEMA_VERSION = 2;
-const MCP_VERSION = "0.4.0";
+const MCP_VERSION = "0.4.1";
 const SETTINGS_LOCK_STALE_MS = 120_000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeForComparison(value) {
   const normalized = path.resolve(value).replace(/[\\/]+$/, "");
@@ -443,6 +445,22 @@ export async function listSessionEvents(projectRootInput, limit = 50) {
     if (error?.code === "ENOENT") return [];
     throw error;
   }
+}
+
+export async function requireRegisteredConversation(projectRootInput, conversationId) {
+  const projectRoot = await requireEnabledProject(projectRootInput);
+  if (!UUID_PATTERN.test(String(conversationId || ""))) {
+    throw new Error("conversation_id must be a UUID");
+  }
+  const active = await getActiveSession(projectRoot);
+  if (active.conversationId === conversationId) return conversationId;
+  const events = await listSessionEvents(projectRoot, 100_000);
+  if (events.some((event) => event.conversationId === conversationId)) {
+    return conversationId;
+  }
+  throw new Error(
+    `Conversation ${conversationId} is not registered to project ${projectRoot}`
+  );
 }
 
 export async function recordAgyCall(projectRootInput, details) {

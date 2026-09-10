@@ -29,6 +29,7 @@ import {
   enableProject,
   listSessionEvents,
   projectStatus,
+  requireRegisteredConversation,
   setActiveConversation
 } from "../src/projects.js";
 import {
@@ -489,6 +490,169 @@ test("isolated verification requires explicit untrusted-code approval", async ()
       }),
     /allow_untrusted_verification=true/
   );
+});
+
+test("isolated execution continues the requested project conversation", async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "agy-execute-conversation-"));
+  const projectRoot = path.join(temporaryRoot, "project");
+  const settingsPath = path.join(temporaryRoot, "settings.json");
+  const conversationId = "0a46654e-c16f-4412-aff3-b5bc06495ddd";
+  const previousSettingsPath = process.env.ANTIGRAVITY_SETTINGS_PATH;
+  const previousAgyBin = process.env.AGY_BIN;
+  let invocation;
+
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(path.join(projectRoot, "message.txt"), "BEFORE\n", "utf8");
+  await writeFile(settingsPath, "{}\n", "utf8");
+  process.env.ANTIGRAVITY_SETTINGS_PATH = settingsPath;
+  process.env.AGY_BIN = "agy-must-not-run-during-unit-test";
+
+  try {
+    await enableProject(projectRoot);
+    await setActiveConversation(projectRoot, conversationId);
+
+    const result = await executeIsolated({
+      task: "Keep the file unchanged",
+      projectRoot,
+      conversationId,
+      agyRunner: async (options) => {
+        invocation = options;
+        return {
+          ok: true,
+          status: "SUCCESS",
+          conversationId,
+          response: "",
+          structuredOutput: { summary: "No changes", operations: [] },
+          warnings: [],
+          events: []
+        };
+      }
+    });
+
+    assert.equal(invocation.conversationId, conversationId);
+    assert.equal(result.conversationId, conversationId);
+    assert.equal(result.status, "completed");
+  } finally {
+    if (previousSettingsPath === undefined) delete process.env.ANTIGRAVITY_SETTINGS_PATH;
+    else process.env.ANTIGRAVITY_SETTINGS_PATH = previousSettingsPath;
+    if (previousAgyBin === undefined) delete process.env.AGY_BIN;
+    else process.env.AGY_BIN = previousAgyBin;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a conversation can only be reused by the project that registered it", async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "agy-conversation-owner-"));
+  const projectRoot = path.join(temporaryRoot, "project");
+  const settingsPath = path.join(temporaryRoot, "settings.json");
+  const registeredId = "0a46654e-c16f-4412-aff3-b5bc06495ddd";
+  const foreignId = "1b57765f-d270-4523-bf4c-c6cd17506eee";
+  const previousSettingsPath = process.env.ANTIGRAVITY_SETTINGS_PATH;
+
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(settingsPath, "{}\n", "utf8");
+  process.env.ANTIGRAVITY_SETTINGS_PATH = settingsPath;
+
+  try {
+    await enableProject(projectRoot);
+    await setActiveConversation(projectRoot, registeredId);
+
+    assert.equal(
+      await requireRegisteredConversation(projectRoot, registeredId),
+      registeredId
+    );
+    await assert.rejects(
+      () => requireRegisteredConversation(projectRoot, foreignId),
+      /not registered to project/
+    );
+  } finally {
+    if (previousSettingsPath === undefined) delete process.env.ANTIGRAVITY_SETTINGS_PATH;
+    else process.env.ANTIGRAVITY_SETTINGS_PATH = previousSettingsPath;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("isolated execution rejects an unregistered conversation before calling AGY", async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "agy-execute-owner-"));
+  const projectRoot = path.join(temporaryRoot, "project");
+  const settingsPath = path.join(temporaryRoot, "settings.json");
+  const foreignId = "1b57765f-d270-4523-bf4c-c6cd17506eee";
+  const previousSettingsPath = process.env.ANTIGRAVITY_SETTINGS_PATH;
+  let agyWasCalled = false;
+
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(settingsPath, "{}\n", "utf8");
+  process.env.ANTIGRAVITY_SETTINGS_PATH = settingsPath;
+
+  try {
+    await enableProject(projectRoot);
+    await assert.rejects(
+      () =>
+        executeIsolated({
+          task: "Do not run",
+          projectRoot,
+          conversationId: foreignId,
+          agyRunner: async () => {
+            agyWasCalled = true;
+            throw new Error("AGY should not be called");
+          }
+        }),
+      /not registered to project/
+    );
+    assert.equal(agyWasCalled, false);
+  } finally {
+    if (previousSettingsPath === undefined) delete process.env.ANTIGRAVITY_SETTINGS_PATH;
+    else process.env.ANTIGRAVITY_SETTINGS_PATH = previousSettingsPath;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("isolated execution does not apply changes when AGY switches conversation", async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "agy-execute-mismatch-"));
+  const projectRoot = path.join(temporaryRoot, "project");
+  const settingsPath = path.join(temporaryRoot, "settings.json");
+  const requestedId = "0a46654e-c16f-4412-aff3-b5bc06495ddd";
+  const returnedId = "1b57765f-d270-4523-bf4c-c6cd17506eee";
+  const previousSettingsPath = process.env.ANTIGRAVITY_SETTINGS_PATH;
+
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(path.join(projectRoot, "message.txt"), "BEFORE\n", "utf8");
+  await writeFile(settingsPath, "{}\n", "utf8");
+  process.env.ANTIGRAVITY_SETTINGS_PATH = settingsPath;
+
+  try {
+    await enableProject(projectRoot);
+    await setActiveConversation(projectRoot, requestedId);
+    const result = await executeIsolated({
+      task: "Change the message",
+      projectRoot,
+      conversationId: requestedId,
+      agyRunner: async () => ({
+        ok: true,
+        status: "SUCCESS",
+        conversationId: returnedId,
+        response: "",
+        structuredOutput: {
+          summary: "Changed message",
+          operations: [{ path: "message.txt", content: "AFTER\n" }]
+        },
+        warnings: [],
+        events: []
+      })
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error, /different conversation/);
+    assert.deepEqual(result.appliedOperations, []);
+    assert.equal(
+      await readFile(path.join(result.isolatedWorkspace, "message.txt"), "utf8"),
+      "BEFORE\n"
+    );
+  } finally {
+    if (previousSettingsPath === undefined) delete process.env.ANTIGRAVITY_SETTINGS_PATH;
+    else process.env.ANTIGRAVITY_SETTINGS_PATH = previousSettingsPath;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("execution timeout budget stays below the configured MCP tool timeout", () => {

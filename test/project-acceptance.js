@@ -70,6 +70,7 @@ try {
       name: "antigravity_execute",
       arguments: {
         project_root: projectRoot,
+        conversation_id: conversationId,
         task: "Create a UTF-8 text file named agy_acceptance.txt whose exact content is AGY_ISOLATED_OK followed by a newline. Do not create or change any other file.",
         timeout_seconds: 240,
         max_response_chars: 4000,
@@ -79,6 +80,7 @@ try {
     { timeout: 270_000, maxTotalTimeout: 270_000 }
   );
   assert.notEqual(execution.isError, true);
+  assert.equal(execution.structuredContent.conversationId, conversationId);
   const runId = execution.structuredContent.runId;
   const isolatedWorkspace = execution.structuredContent.isolatedWorkspace;
   assert.ok(runId && isolatedWorkspace);

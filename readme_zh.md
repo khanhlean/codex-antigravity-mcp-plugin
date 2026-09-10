@@ -37,8 +37,8 @@ agy -p "Reply exactly: AGY_OK" --output-format json
 ## 安装
 
 ```bash
-git clone https://github.com/ustc-fyk/antigravity-codex-mcp.git
-cd antigravity-codex-mcp
+git clone https://github.com/khanhlean/codex-antigravity-bridge.git
+cd codex-antigravity-bridge
 npm ci
 npm test
 ```
@@ -143,6 +143,11 @@ Copy-Item ".\skills\agy-project-assistant\SKILL.md" $skillRoot
 5. Codex 根据任务选择分析、继续对话、独立审查或隔离实现。
 6. 说 `禁用当前项目的 AGY`，即可撤销该项目权限，同时保留本地审计记录。
 
+同一功能的后续实现应把上一次运行的 `conversation_id` 传给
+`antigravity_execute`。Bridge 会先确认该会话属于当前精确项目，再通过
+`agy --conversation` 继续会话。新功能应省略此字段。每次执行仍会创建新的隔离
+run workspace，并且不会自动合并到源代码。
+
 用户可以手动进入同一个会话：
 
 ```bash
@@ -159,6 +164,9 @@ agy --conversation=<conversation_id>
 | 会话 | `antigravity_start_session`、`antigravity_get_active_session`、`antigravity_list_sessions`、`antigravity_ask`、`antigravity_continue`、`antigravity_review` |
 | 可见对话 | `antigravity_sync_conversation`、`antigravity_get_transcript` |
 | 隔离实现 | `antigravity_execute`、`antigravity_list_runs`、`antigravity_get_run` |
+
+`antigravity_execute` 支持可选的 `conversation_id`。无效、未登记或属于其他项目的
+会话 ID 会在启动 AGY 前被拒绝。
 
 只有新建、询问、继续、审查和执行工具会调用 AGY 模型。健康检查、状态、历史、运行检查和 transcript 同步不会消耗 AGY 模型轮次。
 

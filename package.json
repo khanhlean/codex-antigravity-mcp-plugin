@@ -1,6 +1,6 @@
 {
   "name": "antigravity-codex-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "A controlled MCP bridge that lets Codex delegate analysis, review, and isolated implementation tasks to Antigravity CLI.",
   "license": "MIT",
@@ -13,11 +13,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ustc-fyk/antigravity-codex-mcp.git"
+    "url": "git+https://github.com/khanhlean/codex-antigravity-bridge.git"
   },
-  "homepage": "https://github.com/ustc-fyk/antigravity-codex-mcp#readme",
+  "homepage": "https://github.com/khanhlean/codex-antigravity-bridge#readme",
   "bugs": {
-    "url": "https://github.com/ustc-fyk/antigravity-codex-mcp/issues"
+    "url": "https://github.com/khanhlean/codex-antigravity-bridge/issues"
   },
   "files": [
     "src/",

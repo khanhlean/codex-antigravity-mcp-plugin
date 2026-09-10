@@ -23,6 +23,7 @@ The bridge is designed to:
 - terminate full AGY/verification process trees on timeout and recover locks left by dead processes;
 - require explicit risk acceptance before running verification against AGY-influenced code;
 - reject sensitive extra environment-variable names unless a separate high-risk override is enabled.
+- reject reuse of any conversation that is not registered to the exact enabled project.
 
 ## Residual risks
 

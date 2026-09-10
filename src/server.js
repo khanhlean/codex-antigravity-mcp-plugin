@@ -17,7 +17,7 @@ import {
   syncConversationTranscript
 } from "./transcripts.js";
 
-const BRIDGE_VERSION = "0.4.0";
+const BRIDGE_VERSION = "0.4.1";
 const MAX_MODEL_TIMEOUT_SECONDS = 825;
 const MAX_EXECUTION_BUDGET_SECONDS = 840;
 
@@ -567,9 +567,14 @@ export function createServer() {
     {
       title: "Execute a task in an isolated AGY workspace",
       description:
-        "For an enabled project, ask AGY for schema-validated file replacements, apply only validated paths to a disposable copy, and never merge into source. Verification executes AGY-influenced code and requires explicit risk acceptance.",
+        "For an enabled project, ask AGY for schema-validated file replacements, optionally continue a registered project conversation, apply only validated paths to a disposable copy, and never merge into source. Verification executes AGY-influenced code and requires explicit risk acceptance.",
       inputSchema: z.object({
         project_root: projectRootSchema,
+        conversation_id: uuidSchema
+          .optional()
+          .describe(
+            "Reuse a conversation already registered to this exact project for a follow-up implementation. Omit it for a new task."
+          ),
         task: z.string().min(1).max(30000),
         model: sharedModelInput.model,
         effort: sharedModelInput.effort,
@@ -598,7 +603,7 @@ export function createServer() {
         openWorldHint: false
       }
     },
-    async ({ project_root, task, model, effort, timeout_seconds, max_response_chars, verification, allow_untrusted_verification, verification_timeout_seconds }) => {
+    async ({ project_root, conversation_id, task, model, effort, timeout_seconds, max_response_chars, verification, allow_untrusted_verification, verification_timeout_seconds }) => {
       let root;
       try {
         root = await requireEnabledProject(project_root);
@@ -614,6 +619,7 @@ export function createServer() {
         const result = await executeIsolated({
           task,
           projectRoot: root,
+          conversationId: conversation_id,
           model,
           effort,
           timeoutSeconds: timeout_seconds,

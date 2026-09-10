@@ -37,8 +37,8 @@ If `agy` is not on `PATH`, set `AGY_BIN` to its executable path in the MCP confi
 ## Installation
 
 ```bash
-git clone https://github.com/ustc-fyk/antigravity-codex-mcp.git
-cd antigravity-codex-mcp
+git clone https://github.com/khanhlean/codex-antigravity-bridge.git
+cd codex-antigravity-bridge
 npm ci
 npm test
 ```
@@ -143,6 +143,12 @@ Restart Codex after changing MCP configuration or installing the Skill.
 5. Codex delegates analysis, review, continuation, or isolated implementation as appropriate.
 6. Ask `Disable AGY for this project` to revoke the exact project permission while preserving local audit history.
 
+For a follow-up implementation of the same feature, pass the previous run's
+`conversation_id` to `antigravity_execute`. The bridge validates that the conversation
+belongs to the exact project and continues it with `agy --conversation`. Omit the field
+for a new, unrelated implementation. Every execution still receives a new isolated run
+workspace and never merges automatically.
+
 To inspect or participate in the same conversation directly:
 
 ```bash
@@ -159,6 +165,10 @@ After sending messages through AGY CLI, ask Codex to `sync the AGY conversation`
 | Conversations | `antigravity_start_session`, `antigravity_get_active_session`, `antigravity_list_sessions`, `antigravity_ask`, `antigravity_continue`, `antigravity_review` |
 | Visible transcripts | `antigravity_sync_conversation`, `antigravity_get_transcript` |
 | Isolated implementation | `antigravity_execute`, `antigravity_list_runs`, `antigravity_get_run` |
+
+`antigravity_execute` accepts an optional `conversation_id`. Reusing it avoids opening a
+new AGY conversation for iterative work on the same feature. Invalid, unregistered, and
+cross-project conversation IDs are rejected before AGY starts.
 
 Model calls occur only through the start, ask, continue, review, and execute tools. Health, status, history, run inspection, and transcript synchronization do not consume an AGY model turn.
 

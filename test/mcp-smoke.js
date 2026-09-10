@@ -60,6 +60,7 @@ try {
   ]);
   const executeTool = tools.find((tool) => tool.name === "antigravity_execute");
   assert.ok(executeTool.inputSchema.properties.allow_untrusted_verification);
+  assert.ok(executeTool.inputSchema.properties.conversation_id);
 
   const health = await client.callTool({
     name: "antigravity_health",

@@ -27,8 +27,10 @@ Use the globally available Antigravity MCP as an idle bridge. Never initialize, 
 - Before a follow-up, use `antigravity_sync_conversation` when the user may have interacted through AGY CLI. `antigravity_continue` also synchronizes before and after its model call.
 - Use `antigravity_continue` for follow-ups in the active conversation. Inspect `transcriptSync.before.records` for messages added through AGY CLI.
 - Use `antigravity_review` for an independent correctness, regression, security, or test-gap review.
-- Use `antigravity_execute` for implementation. It may modify only an isolated copy and must never merge automatically. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
+- Use `antigravity_execute` for implementation. It may modify only an isolated copy and must never merge automatically. For a follow-up on the same feature, pass the exact `conversation_id` returned by the previous run; omit it for a new or unrelated feature. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
 - Prefer Codex itself for small tasks whose delegation overhead would exceed the work.
+- Consolidate approved acceptance criteria before implementation. Default to one `antigravity_execute` call per feature, inspect failures before retrying, and do not open a new implementation conversation for minor corrections that Codex can safely integrate after review.
+- Use `effort: "medium"` for routine bounded implementation. Reserve `effort: "high"` for complex architecture, security-sensitive work, or an explicit user request.
 
 After every model call, report the exact `project_root` and `conversation_id`. After implementation, also report `run_id`, isolated workspace path, changed files, and verification status. Verify AGY conclusions independently before applying anything to source.
 

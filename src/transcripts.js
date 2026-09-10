@@ -8,7 +8,8 @@ import {
   getActiveSession,
   getProjectStateDirectory,
   listSessionEvents,
-  requireEnabledProject
+  requireEnabledProject,
+  requireRegisteredConversation
 } from "./projects.js";
 
 const UUID_PATTERN =
@@ -160,16 +161,6 @@ async function readJsonLines(filePath, { missingIsEmpty = false } = {}) {
   return { records, malformed };
 }
 
-async function verifyConversationOwnership(projectRoot, conversationId) {
-  const active = await getActiveSession(projectRoot);
-  if (active.conversationId === conversationId) return;
-  const events = await listSessionEvents(projectRoot, 100_000);
-  if (events.some((event) => event.conversationId === conversationId)) return;
-  throw new Error(
-    `Conversation ${conversationId} is not registered to project ${projectRoot}`
-  );
-}
-
 async function resolveConversation(projectRoot, conversationId) {
   const active = await getActiveSession(projectRoot);
   const selected = conversationId || active.conversationId;
@@ -177,7 +168,7 @@ async function resolveConversation(projectRoot, conversationId) {
     throw new Error("No active AGY conversation; start a session or provide conversation_id");
   }
   if (!UUID_PATTERN.test(selected)) throw new Error("conversation_id must be a UUID");
-  await verifyConversationOwnership(projectRoot, selected);
+  await requireRegisteredConversation(projectRoot, selected);
   return selected;
 }
 
