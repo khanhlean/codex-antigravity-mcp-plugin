@@ -43,6 +43,18 @@ npm ci
 npm test
 ```
 
+### Codex plugin (recommended)
+
+On Windows, install the bundled MCP runtime and quota-aware workflow from the repository marketplace:
+
+```powershell
+.\plugins\antigravity-worker\scripts\install.ps1
+```
+
+Open a new Codex thread after installation. The plugin runtime is built from this repository's source, so there is no duplicated vendored bridge to keep in sync.
+
+### Manual MCP setup
+
 Add the server to your Codex `config.toml`. Replace the example paths with the absolute clone path on your machine:
 
 **Linux / macOS:**

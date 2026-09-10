@@ -1,0 +1,38 @@
+{
+  "name": "antigravity-worker",
+  "version": "0.4.1+codex.20260910034010",
+  "description": "Controlled bridge for delegating bounded implementation work from Codex to Antigravity CLI.",
+  "author": {
+    "name": "Khanh Le",
+    "url": "https://github.com/khanhlean"
+  },
+  "homepage": "https://github.com/khanhlean/codex-antigravity-bridge#readme",
+  "repository": "https://github.com/khanhlean/codex-antigravity-bridge",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "mcp",
+    "antigravity",
+    "gemini",
+    "tdd"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Antigravity Worker",
+    "shortDescription": "Codex d\u1eabn d\u1eaft, AGY tri\u1ec3n khai trong v\u00f9ng c\u00f4 l\u1eadp.",
+    "longDescription": "Cung c\u1ea5p MCP bridge v\u00e0 quy tr\u00ecnh ti\u1ebft ki\u1ec7m quota: Codex ph\u1ee5 tr\u00e1ch ph\u00e2n t\u00edch, ki\u1ebfn tr\u00fac, TDD v\u00e0 review; Gemini 3.8 Flash High x\u1eed l\u00fd ph\u1ea7n tri\u1ec3n khai c\u00f3 ph\u1ea1m vi r\u00f5 r\u00e0ng trong workspace c\u00f4 l\u1eadp v\u00e0 t\u00e1i s\u1eed d\u1ee5ng h\u1ed9i tho\u1ea1i theo feature.",
+    "developerName": "Khanh Le",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Local MCP",
+      "Isolated implementation",
+      "Code review"
+    ],
+    "defaultPrompt": [
+      "D\u00f9ng Antigravity \u0111\u1ec3 tri\u1ec3n khai task \u0111\u00e3 ch\u1ed1t n\u00e0y.",
+      "Ti\u1ebfp t\u1ee5c feature b\u1eb1ng h\u1ed9i tho\u1ea1i Antigravity hi\u1ec7n t\u1ea1i.",
+      "Review l\u1ea7n ch\u1ea1y Antigravity g\u1ea7n nh\u1ea5t."
+    ]
+  }
+}

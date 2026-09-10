@@ -1,0 +1,20 @@
+{
+  "name": "antigravity-bridge",
+  "interface": {
+    "displayName": "Antigravity Bridge"
+  },
+  "plugins": [
+    {
+      "name": "antigravity-worker",
+      "source": {
+        "source": "local",
+        "path": "./plugins/antigravity-worker"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer"
+    }
+  ]
+}
