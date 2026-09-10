@@ -27,11 +27,11 @@ Use the globally available Antigravity MCP as an idle bridge. The user's durable
 - Before a follow-up, use `antigravity_sync_conversation` when the user may have interacted through AGY CLI. `antigravity_continue` also synchronizes before and after its model call.
 - Use `antigravity_continue` for follow-ups in the active conversation. Inspect `transcriptSync.before.records` for messages added through AGY CLI.
 - Use `antigravity_review` for an independent correctness, regression, security, or test-gap review.
-- Use `antigravity_execute` for implementation. It may modify only an isolated copy and must never merge automatically. For a follow-up on the same feature, pass the exact `conversation_id` returned by the previous run; omit it for a new or unrelated feature. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
+- Use `antigravity_execute` for implementation. Changes are written directly into the workspace so Codex can review them using `git diff`. For a follow-up on the same feature, pass the exact `conversation_id` returned by the previous run; omit it for a new or unrelated feature. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
 - Prefer AGY for bounded implementation work after Codex has approved the design and defined the acceptance criteria. Codex remains responsible for architecture, TDD direction, review, and final integration.
 - Consolidate approved acceptance criteria before implementation. Default to one `antigravity_execute` call per feature, inspect failures before retrying, and let Codex safely integrate minor corrections after review instead of opening another implementation conversation.
 
-After every model call, report the exact `project_root` and `conversation_id`. After implementation, also report `run_id`, isolated workspace path, changed files, and verification status. Verify AGY conclusions independently before applying anything to source.
+After every model call, report the exact `project_root` and `conversation_id`. After implementation, also report `run_id`, changed files, and `git diff` review summary. Review changes with `git diff` before committing.
 
 ## Inspect and resume
 
@@ -39,7 +39,7 @@ After every model call, report the exact `project_root` and `conversation_id`. A
 - Use `antigravity_list_sessions` for project delegation history.
 - Use `antigravity_sync_conversation` to pull newly added visible AGY CLI messages without calling a model.
 - Use `antigravity_get_transcript` when the user asks Codex to read or summarize the visible AGY conversation.
-- Use `antigravity_list_runs` and `antigravity_get_run` for isolated implementation audits.
+- Use `antigravity_list_runs` and `antigravity_get_run` for implementation audits.
 - Tell the user they can inspect a conversation with `agy --conversation=<conversation_id>`.
 
 ## Disable AGY
@@ -50,10 +50,10 @@ When the user asks to disable, unload, revoke, or stop AGY for the current proje
 
 - Enable AGY only for approved bounded implementation or when the user explicitly requests it.
 - Never grant a broader path than the exact current project root.
-- Never add AGY write, command, URL, or MCP permissions.
-- Never use dangerous auto-approval flags.
-- Apply isolated changes to source only after Codex review. The durable local policy authorizes application within the already approved task scope without an additional per-tool or per-patch confirmation; ask the user if scope expands, a destructive action is needed, or a business/design decision is unresolved.
-- Never enable non-`none` verification without explicit user risk acceptance. Verification commands execute code from the AGY-influenced isolated workspace and are not an OS sandbox.
+- Never add AGY command, URL, or MCP permissions unless explicitly configured.
+- Review AGY workspace modifications using `git diff` before committing.
+- Codex must review `git diff` within the approved task scope; ask the user if scope expands, a destructive action is needed, or a business/design decision is unresolved.
+- Never enable non-`none` verification without explicit user risk acceptance. Verification commands execute code from the project workspace.
 - Never request, expose, reconstruct, or persist AGY private thinking or chain-of-thought. Use only visible messages, final answers, and sanitized tool traces.
 - Transcript synchronization is on demand. Avoid concurrent sends from Codex and an interactive AGY CLI in the same conversation.
 
@@ -66,8 +66,8 @@ The user has authorized this durable collaboration model:
 - For every `antigravity_execute` call, always set `model: "gemini-3.8-flash-high"` and `verification: "none"`. Use `effort: "medium"` for routine bounded implementation. Reserve `effort: "high"` for complex architecture, security-sensitive work, or an explicit user request.
 - Never omit the model parameter for implementation work. If Gemini 3.8 Flash High is unavailable, stop and report the failure; do not silently fall back to another model.
 - Codex must define the objective, allowed files, forbidden files, acceptance criteria, and tests before delegation.
-- AGY may modify only the isolated workspace created by `antigravity_execute`.
-- Codex must inspect every changed file, verify UTF-8, and independently run the relevant project tests before applying changes to the source tree.
-- Never merge or copy isolated changes into the source tree without Codex review.
+- AGY modifies the workspace directly via `antigravity_execute` without file count or copying limits.
+- Codex must inspect every changed file via `git diff`, verify UTF-8, and independently run the relevant project tests before committing.
+- Never commit or accept changes without Codex `git diff` review.
 - Reject AGY output that changes architecture, security, public APIs, or files outside the approved scope.
 - For Odoo work, require current Odoo 19 syntax verified against the actual project source.

@@ -17,8 +17,11 @@ import {
 import {
   applyStructuredOperations,
   collectChanges,
+  diffGitStatus,
   executeIsolated,
+  extractFilesFromEvents,
   listRuns,
+  parseGitStatus,
   shouldCopyRelative
 } from "../src/execution.js";
 import { validateExecutionTimeoutBudget } from "../src/server.js";
@@ -712,3 +715,134 @@ test("applyStructuredOperations preserves executable file mode", async () => {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+test("buildAgyArgs appends dangerously-skip-permissions when requested", () => {
+  const args = buildAgyArgs({
+    prompt: "test",
+    mode: "accept-edits",
+    dangerouslySkipPermissions: true
+  });
+  assert.ok(args.includes("--dangerously-skip-permissions"));
+  assert.ok(args.includes("--mode=accept-edits"));
+});
+
+test("parseGitStatus parses porcelain status lines accurately", () => {
+  const sample = [
+    " M src/index.js",
+    "M  README.md",
+    "A  new_file.txt",
+    "?? untracked.py",
+    " D old_file.js",
+    ' R "old name.txt" -> "new name.txt"'
+  ].join("\n");
+
+  const parsed = parseGitStatus(sample);
+  assert.deepEqual(
+    parsed.map((p) => [p.path, p.status]),
+    [
+      ["src/index.js", "modified"],
+      ["README.md", "modified"],
+      ["new_file.txt", "added"],
+      ["untracked.py", "added"],
+      ["old_file.js", "deleted"],
+      ["new name.txt", "modified"]
+    ]
+  );
+});
+
+test("diffGitStatus correctly computes diff between before and after git status", () => {
+  const before = [
+    { path: "existing.txt", status: "modified", code: " M" },
+    { path: "to_delete.txt", status: "modified", code: " M" }
+  ];
+  const after = [
+    { path: "existing.txt", status: "modified", code: " M" },
+    { path: "newly_added.txt", status: "added", code: "??" }
+  ];
+  const diff = diffGitStatus(before, after);
+  assert.deepEqual(diff, [
+    { path: "newly_added.txt", status: "added" },
+    { path: "to_delete.txt", status: "deleted" }
+  ]);
+});
+
+test("extractFilesFromEvents extracts edited files from AGY tool calls", () => {
+  const root = path.resolve("C:/my-project");
+  const events = [
+    {
+      step_update: {
+        step_type: "tool",
+        tool_name: "replace_file_content",
+        tool_info: { parameters: { TargetFile: path.join(root, "models", "sale.py") } }
+      }
+    },
+    {
+      step_update: {
+        step_type: "tool",
+        tool_name: "write_to_file",
+        tool_info: { parameters: { TargetFile: path.join(root, "views", "sale_views.xml") } }
+      }
+    }
+  ];
+  const files = extractFilesFromEvents(events, root);
+  assert.deepEqual(files, [
+    { path: path.join("models", "sale.py"), status: "modified" },
+    { path: path.join("views", "sale_views.xml"), status: "added" }
+  ]);
+});
+
+test("executeIsolated runs in accept-edits mode with dangerouslySkipPermissions directly in workspace", async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "agy-direct-exec-"));
+  const projectRoot = path.join(temporaryRoot, "project");
+  const settingsPath = path.join(temporaryRoot, "settings.json");
+  const previousSettingsPath = process.env.ANTIGRAVITY_SETTINGS_PATH;
+  let receivedOptions = null;
+
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(path.join(projectRoot, "test.txt"), "hello", "utf8");
+  await writeFile(settingsPath, "{}\n", "utf8");
+  process.env.ANTIGRAVITY_SETTINGS_PATH = settingsPath;
+
+  try {
+    await enableProject(projectRoot);
+    const result = await executeIsolated({
+      task: "Modify test.txt",
+      projectRoot,
+      agyRunner: async (options) => {
+        receivedOptions = options;
+        // Simulate AGY writing directly to workspace
+        await writeFile(path.join(projectRoot, "test.txt"), "hello world", "utf8");
+        return {
+          ok: true,
+          status: "SUCCESS",
+          conversationId: "c1111111-1111-4111-8111-111111111111",
+          response: "Updated test.txt successfully",
+          warnings: [],
+          events: [
+            {
+              step_update: {
+                step_type: "tool",
+                tool_name: "replace_file_content",
+                tool_info: { parameters: { TargetFile: path.join(projectRoot, "test.txt") } }
+              }
+            }
+          ]
+        };
+      }
+    });
+
+    assert.equal(receivedOptions.mode, "accept-edits");
+    assert.equal(receivedOptions.dangerouslySkipPermissions, true);
+    assert.equal(receivedOptions.workingDirectory, projectRoot);
+    assert.equal(result.status, "completed");
+    assert.equal(result.isolatedWorkspace, projectRoot);
+    assert.equal(await readFile(path.join(projectRoot, "test.txt"), "utf8"), "hello world");
+    assert.ok(result.changes.length > 0);
+    assert.ok(result.reviewGuidance.includes("git diff"));
+  } finally {
+    if (previousSettingsPath === undefined) delete process.env.ANTIGRAVITY_SETTINGS_PATH;
+    else process.env.ANTIGRAVITY_SETTINGS_PATH = previousSettingsPath;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+

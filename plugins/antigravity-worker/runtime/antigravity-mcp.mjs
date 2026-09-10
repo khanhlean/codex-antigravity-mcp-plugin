@@ -20401,6 +20401,7 @@ function buildAgyArgs({
   mode = "plan",
   outputFormat = "json",
   disableSlashCommands = true,
+  dangerouslySkipPermissions = false,
   jsonSchema
 }) {
   const args = [
@@ -20414,6 +20415,9 @@ function buildAgyArgs({
   ];
   if (disableSlashCommands && mode !== "plan") {
     args.push("--disable-slash-commands");
+  }
+  if (dangerouslySkipPermissions) {
+    args.push("--dangerously-skip-permissions");
   }
   if (sandbox) args.push("--sandbox");
   if (jsonSchema) args.push("--json-schema", JSON.stringify(jsonSchema));
@@ -20599,6 +20603,7 @@ async function runAgy({
   sandbox = isAgySandboxEnabled(),
   extraEnv = {},
   jsonSchema,
+  dangerouslySkipPermissions = false,
   allowedRoots
 }) {
   const cwd = await resolveAllowedDirectory(workingDirectory, allowedRoots);
@@ -20616,6 +20621,7 @@ async function runAgy({
     mode,
     outputFormat,
     sandbox,
+    dangerouslySkipPermissions,
     jsonSchema
   });
   return await new Promise((resolve, reject) => {
@@ -20732,7 +20738,6 @@ async function getAgyHealth() {
 // src/execution.js
 import { createHash, randomUUID as randomUUID2 } from "node:crypto";
 import { spawn as spawn2 } from "node:child_process";
-import { createReadStream } from "node:fs";
 import {
   chmod,
   copyFile as copyFile2,
@@ -21174,32 +21179,10 @@ async function recordAgyCall(projectRootInput, details) {
 
 // src/execution.js
 var RUN_ID_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]{8}$/;
-var MAX_FILES = 2e4;
 var MAX_COPY_BYTES = 1024 * 1024 * 1024;
 var MAX_VERIFICATION_BYTES = 1024 * 1024;
 var MAX_PATCH_OPERATIONS = 50;
 var MAX_PATCH_CHARACTERS = 2e6;
-var PATCH_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    summary: { type: "string" },
-    operations: {
-      type: "array",
-      maxItems: MAX_PATCH_OPERATIONS,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          path: { type: "string" },
-          content: { type: "string" }
-        },
-        required: ["path", "content"]
-      }
-    }
-  },
-  required: ["summary", "operations"]
-};
 var EXCLUDED_DIRECTORY_NAMES = /* @__PURE__ */ new Set([
   ".antigravity-mcp",
   ".codex",
@@ -21240,101 +21223,6 @@ function shouldCopyRelative(relativePath) {
     return false;
   }
   return !parts.some((part) => isSensitiveFileName(part));
-}
-async function copyProject(source, destination) {
-  await mkdir2(destination, { recursive: false });
-  const pending = [{ source, destination, relative: "" }];
-  let fileCount = 0;
-  let totalBytes = 0;
-  while (pending.length > 0) {
-    const current = pending.pop();
-    const entries = await readdir(current.source, { withFileTypes: true });
-    for (const entry of entries) {
-      const relative = path3.join(current.relative, entry.name);
-      if (!shouldCopyRelative(relative)) continue;
-      const sourcePath = path3.join(current.source, entry.name);
-      const destinationPath = path3.join(current.destination, entry.name);
-      const info = await lstat(sourcePath);
-      if (info.isSymbolicLink()) continue;
-      if (info.isDirectory()) {
-        await mkdir2(destinationPath, { recursive: false });
-        pending.push({
-          source: sourcePath,
-          destination: destinationPath,
-          relative
-        });
-        continue;
-      }
-      if (!info.isFile()) continue;
-      fileCount += 1;
-      totalBytes += info.size;
-      if (fileCount > MAX_FILES || totalBytes > MAX_COPY_BYTES) {
-        throw new Error(
-          `Project copy exceeds the safety limit (${MAX_FILES} files or 1 GiB)`
-        );
-      }
-      await copyFile2(sourcePath, destinationPath);
-    }
-  }
-}
-async function hashFile(filePath) {
-  return await new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const input = createReadStream(filePath);
-    input.on("error", reject);
-    input.on("data", (chunk) => hash.update(chunk));
-    input.on("end", () => resolve(hash.digest("hex")));
-  });
-}
-async function snapshotFiles(root) {
-  const snapshot = /* @__PURE__ */ new Map();
-  const pending = [root];
-  let fileCount = 0;
-  while (pending.length > 0) {
-    const current = pending.pop();
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const absolute = path3.join(current, entry.name);
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) {
-        pending.push(absolute);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      fileCount += 1;
-      if (fileCount > MAX_FILES) {
-        throw new Error(`Isolated workspace exceeds the ${MAX_FILES} file safety limit`);
-      }
-      const info = await stat3(absolute);
-      snapshot.set(path3.relative(root, absolute), {
-        sha256: await hashFile(absolute),
-        size: info.size
-      });
-    }
-  }
-  return snapshot;
-}
-function collectChanges(before, after) {
-  const changes = [];
-  for (const [relativePath, initial] of before) {
-    const current = after.get(relativePath);
-    if (!current) {
-      changes.push({ path: relativePath, status: "deleted", beforeSize: initial.size });
-    } else if (current.sha256 !== initial.sha256) {
-      changes.push({
-        path: relativePath,
-        status: "modified",
-        beforeSize: initial.size,
-        afterSize: current.size
-      });
-    }
-  }
-  for (const [relativePath, current] of after) {
-    if (!before.has(relativePath)) {
-      changes.push({ path: relativePath, status: "added", afterSize: current.size });
-    }
-  }
-  return changes.sort((left, right) => left.path.localeCompare(right.path));
 }
 async function runVerification(kind, cwd, timeoutSeconds) {
   if (!kind || kind === "none") return { kind: "none", status: "not-run" };
@@ -21440,6 +21328,114 @@ async function applyStructuredOperations(isolatedWorkspace, structuredOutput) {
   }
   return applied;
 }
+async function runGitCommand(args, cwd, timeoutSeconds = 15) {
+  return await new Promise((resolve) => {
+    const stdout = [];
+    const stderr = [];
+    let settled = false;
+    const child = spawn2("git", args, {
+      cwd,
+      env: buildSafeChildEnv(),
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      void terminateProcessTree(child);
+      resolve({ ok: false, output: "", error: "timeout" });
+    }, timeoutSeconds * 1e3);
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", (error2) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, output: "", error: error2.message });
+    });
+    child.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const out = Buffer.concat(stdout).toString("utf8");
+      if (exitCode === 0) {
+        resolve({ ok: true, output: out });
+      } else {
+        resolve({ ok: false, output: out, exitCode });
+      }
+    });
+  });
+}
+function parseGitStatus(statusOutput) {
+  const entries = [];
+  for (const rawLine of statusOutput.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line || line.length < 3) continue;
+    const code = line.slice(0, 2);
+    let filePath = line.slice(3).trim();
+    if (filePath.includes(" -> ")) {
+      filePath = filePath.split(" -> ")[1].trim();
+    }
+    if (filePath.startsWith('"') && filePath.endsWith('"')) {
+      filePath = filePath.slice(1, -1);
+    }
+    let status = "modified";
+    if (code.includes("A") || code.includes("?")) {
+      status = "added";
+    } else if (code.includes("D")) {
+      status = "deleted";
+    }
+    const normalized = path3.normalize(filePath).replace(/\\/g, "/");
+    entries.push({ path: normalized, status, code: code.trim() });
+  }
+  return entries;
+}
+function diffGitStatus(beforeList, afterList) {
+  const beforeMap = new Map(beforeList.map((item) => [item.path, item.code]));
+  const result = [];
+  for (const item of afterList) {
+    const prevCode = beforeMap.get(item.path);
+    if (prevCode === void 0 || prevCode !== item.code) {
+      result.push({ path: item.path, status: item.status });
+    }
+  }
+  for (const item of beforeList) {
+    if (!afterList.some((after) => after.path === item.path)) {
+      result.push({ path: item.path, status: "deleted" });
+    }
+  }
+  return result.sort((left, right) => left.path.localeCompare(right.path));
+}
+function extractFilesFromEvents(events, projectRoot) {
+  const fileMap = /* @__PURE__ */ new Map();
+  const editToolNames = /* @__PURE__ */ new Set([
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "sed_file",
+    "notebook_edit"
+  ]);
+  for (const event of events || []) {
+    const update = event?.step_update;
+    if (update?.step_type === "tool" && editToolNames.has(update?.tool_name)) {
+      const params = update.tool_info?.parameters;
+      const target = params?.TargetFile || params?.target_file || params?.path || params?.FilePath;
+      if (typeof target === "string") {
+        const relative = path3.relative(projectRoot, path3.resolve(projectRoot, target));
+        if (!relative.startsWith("..") && !path3.isAbsolute(relative)) {
+          const norm = path3.normalize(relative);
+          fileMap.set(norm, {
+            path: norm,
+            status: update.tool_name === "write_to_file" ? "added" : "modified"
+          });
+        }
+      }
+    }
+  }
+  return [...fileMap.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
 async function executeIsolated({
   task,
   projectRoot,
@@ -21466,26 +21462,25 @@ async function executeIsolated({
   await mkdir2(runsRoot, { recursive: true });
   const runId = createRunId();
   const runDirectory = path3.join(runsRoot, runId);
-  const isolatedWorkspace = path3.join(runDirectory, "workspace");
   await mkdir2(runDirectory, { recursive: false });
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-  await copyProject(source, isolatedWorkspace);
-  const before = await snapshotFiles(isolatedWorkspace);
+  const beforeGit = await runGitCommand(["status", "--porcelain", "-uall"], source);
+  const beforeStatusList = beforeGit.ok ? parseGitStatus(beforeGit.output) : [];
   await writeJson(path3.join(runDirectory, "metadata.json"), {
     runId,
     status: "running",
     startedAt,
     source,
-    isolatedWorkspace,
+    isolatedWorkspace: source,
     task,
     requestedConversationId: conversationId || null,
     verification
   });
   const delegatedPrompt = [
-    "You are a delegated implementation planner. Inspect the project read-only and produce exact replacement contents for every file that must be changed or created.",
+    "You are a delegated implementation worker.",
     `The project root is exactly: ${source}`,
-    "Every operation path must be relative to that project root. Never include absolute paths, parent traversal, secret files, dependency directories, build outputs, or deletions.",
-    "Return only the structured result required by the provided JSON schema. Each operation must contain the complete final UTF-8 text content of that file; omit unchanged files.",
+    "Make the requested changes directly in this workspace. Create or edit files as needed.",
+    "Be precise, inspect code before modifying, and summarize your changes when done.",
     `Task:
 ${task}`
   ].join("\n\n");
@@ -21499,10 +21494,10 @@ ${task}`
       effort,
       timeoutSeconds,
       maxResponseChars,
-      mode: "plan",
+      mode: "accept-edits",
       outputFormat: "stream-json",
       sandbox: false,
-      jsonSchema: PATCH_SCHEMA,
+      dangerouslySkipPermissions: true,
       allowedRoots: [source]
     });
   } catch (error2) {
@@ -21522,10 +21517,10 @@ ${task}`
     agyResult.error = "Antigravity returned a different conversation than the one requested";
   }
   let appliedOperations = [];
-  if (agyResult.ok) {
+  if (agyResult.ok && agyResult.structuredOutput && Array.isArray(agyResult.structuredOutput.operations) && agyResult.structuredOutput.operations.length > 0) {
     try {
       appliedOperations = await applyStructuredOperations(
-        isolatedWorkspace,
+        source,
         agyResult.structuredOutput
       );
     } catch (error2) {
@@ -21534,11 +21529,26 @@ ${task}`
       agyResult.error = error2 instanceof Error ? error2.message : String(error2);
     }
   }
-  const after = await snapshotFiles(isolatedWorkspace);
-  const changes = collectChanges(before, after);
+  let changes = [];
+  let gitDiffStat = null;
+  const afterGit = await runGitCommand(["status", "--porcelain", "-uall"], source);
+  if (afterGit.ok) {
+    changes = diffGitStatus(beforeStatusList, parseGitStatus(afterGit.output));
+    const diffStatResult = await runGitCommand(["diff", "--stat"], source);
+    if (diffStatResult.ok) {
+      gitDiffStat = diffStatResult.output.trim() || null;
+    }
+  } else if (appliedOperations.length > 0) {
+    changes = appliedOperations.map((p) => ({ path: p, status: "modified" }));
+  } else {
+    changes = extractFilesFromEvents(agyResult.events, source);
+  }
+  if (!appliedOperations.length && changes.length > 0) {
+    appliedOperations = changes.map((c) => c.path);
+  }
   const verificationResult = await runVerification(
     verification,
-    isolatedWorkspace,
+    source,
     verificationTimeoutSeconds
   );
   const completedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -21563,7 +21573,7 @@ ${task}`
     startedAt,
     completedAt,
     source,
-    isolatedWorkspace,
+    isolatedWorkspace: source,
     task,
     requestedConversationId: conversationId || null,
     returnedConversationId,
@@ -21577,6 +21587,8 @@ ${task}`
     warnings: agyResult.warnings || [],
     appliedOperations,
     changes,
+    gitDiffStat,
+    reviewGuidance: "Changes have been written directly to the workspace. Review them using git diff or IDE Source Control before committing.",
     verification: verificationResult,
     auditLog: path3.join(runDirectory, "events.jsonl"),
     responseFile: path3.join(runDirectory, "response.md")
@@ -21978,7 +21990,7 @@ function createServer() {
   const server = new McpServer(
     { name: "antigravity-codex-mcp", version: BRIDGE_VERSION },
     {
-      instructions: "Never enable or call Antigravity unless the user explicitly asks to load, use, or get help from AGY/Antigravity. The server is globally available but idle by default. On explicit request, use antigravity_project_status for the current project root, then antigravity_enable_project if needed, then start or reuse that project's active AGY conversation. Always report project_root, conversation_id, and run_id. Use read-only analysis by default; implementation must use antigravity_execute and remain isolated from source."
+      instructions: "Never enable or call Antigravity unless the user explicitly asks to load, use, or get help from AGY/Antigravity. The server is globally available but idle by default. On explicit request, use antigravity_project_status for the current project root, then antigravity_enable_project if needed, then start or reuse that project's active AGY conversation. Always report project_root, conversation_id, and run_id. Use read-only analysis by default; implementation modifies the workspace directly via antigravity_execute and should be reviewed using git diff."
     }
   );
   server.registerTool(
@@ -22383,8 +22395,8 @@ ${focus || ""}`,
   server.registerTool(
     "antigravity_execute",
     {
-      title: "Execute a task in an isolated AGY workspace",
-      description: "For an enabled project, ask AGY for schema-validated file replacements, optionally continue a registered project conversation, apply only validated paths to a disposable copy, and never merge into source. Verification executes AGY-influenced code and requires explicit risk acceptance.",
+      title: "Execute a task directly in the project workspace",
+      description: "For an enabled project, delegate code implementation directly to AGY in the workspace, optionally continuing a registered conversation. Changes are written directly into the workspace and should be reviewed using git diff. Verification executes AGY-influenced code and requires explicit risk acceptance.",
       inputSchema: object({
         project_root: projectRootSchema,
         conversation_id: uuidSchema.optional().describe(
@@ -22397,7 +22409,7 @@ ${focus || ""}`,
         max_response_chars: sharedModelInput.max_response_chars,
         verification: _enum(["none", "npm-test", "pytest", "cargo-test", "go-test", "dotnet-test"]).default("none"),
         allow_untrusted_verification: boolean2().default(false).describe(
-          "Required for non-none verification. Confirms the user explicitly accepts execution of AGY-influenced project code inside the isolated workspace."
+          "Required for non-none verification. Confirms the user explicitly accepts execution of AGY-influenced project code inside the workspace."
         ),
         verification_timeout_seconds: number2().int().min(10).max(600).default(240)
       }),

@@ -142,7 +142,7 @@ export function createServer() {
     { name: "antigravity-codex-mcp", version: BRIDGE_VERSION },
     {
       instructions:
-        "Never enable or call Antigravity unless the user explicitly asks to load, use, or get help from AGY/Antigravity. The server is globally available but idle by default. On explicit request, use antigravity_project_status for the current project root, then antigravity_enable_project if needed, then start or reuse that project's active AGY conversation. Always report project_root, conversation_id, and run_id. Use read-only analysis by default; implementation must use antigravity_execute and remain isolated from source."
+        "Never enable or call Antigravity unless the user explicitly asks to load, use, or get help from AGY/Antigravity. The server is globally available but idle by default. On explicit request, use antigravity_project_status for the current project root, then antigravity_enable_project if needed, then start or reuse that project's active AGY conversation. Always report project_root, conversation_id, and run_id. Use read-only analysis by default; implementation modifies the workspace directly via antigravity_execute and should be reviewed using git diff."
     }
   );
 
@@ -565,9 +565,9 @@ export function createServer() {
   server.registerTool(
     "antigravity_execute",
     {
-      title: "Execute a task in an isolated AGY workspace",
+      title: "Execute a task directly in the project workspace",
       description:
-        "For an enabled project, ask AGY for schema-validated file replacements, optionally continue a registered project conversation, apply only validated paths to a disposable copy, and never merge into source. Verification executes AGY-influenced code and requires explicit risk acceptance.",
+        "For an enabled project, delegate code implementation directly to AGY in the workspace, optionally continuing a registered conversation. Changes are written directly into the workspace and should be reviewed using git diff. Verification executes AGY-influenced code and requires explicit risk acceptance.",
       inputSchema: z.object({
         project_root: projectRootSchema,
         conversation_id: uuidSchema
@@ -592,7 +592,7 @@ export function createServer() {
           .boolean()
           .default(false)
           .describe(
-            "Required for non-none verification. Confirms the user explicitly accepts execution of AGY-influenced project code inside the isolated workspace."
+            "Required for non-none verification. Confirms the user explicitly accepts execution of AGY-influenced project code inside the workspace."
           ),
         verification_timeout_seconds: z.number().int().min(10).max(600).default(240)
       }),

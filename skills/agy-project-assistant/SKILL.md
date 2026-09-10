@@ -27,12 +27,12 @@ Use the globally available Antigravity MCP as an idle bridge. Never initialize, 
 - Before a follow-up, use `antigravity_sync_conversation` when the user may have interacted through AGY CLI. `antigravity_continue` also synchronizes before and after its model call.
 - Use `antigravity_continue` for follow-ups in the active conversation. Inspect `transcriptSync.before.records` for messages added through AGY CLI.
 - Use `antigravity_review` for an independent correctness, regression, security, or test-gap review.
-- Use `antigravity_execute` for implementation. It may modify only an isolated copy and must never merge automatically. For a follow-up on the same feature, pass the exact `conversation_id` returned by the previous run; omit it for a new or unrelated feature. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
+- Use `antigravity_execute` for implementation. Changes are written directly into the workspace so Codex and the user can review them using `git diff`. For a follow-up on the same feature, pass the exact `conversation_id` returned by the previous run; omit it for a new or unrelated feature. Keep `verification: "none"` unless the user explicitly accepts execution of AGY-influenced code; only then set `allow_untrusted_verification: true` with a bounded verification timeout.
 - Prefer Codex itself for small tasks whose delegation overhead would exceed the work.
 - Consolidate approved acceptance criteria before implementation. Default to one `antigravity_execute` call per feature, inspect failures before retrying, and do not open a new implementation conversation for minor corrections that Codex can safely integrate after review.
 - Use `effort: "medium"` for routine bounded implementation. Reserve `effort: "high"` for complex architecture, security-sensitive work, or an explicit user request.
 
-After every model call, report the exact `project_root` and `conversation_id`. After implementation, also report `run_id`, isolated workspace path, changed files, and verification status. Verify AGY conclusions independently before applying anything to source.
+After every model call, report the exact `project_root` and `conversation_id`. After implementation, also report `run_id`, changed files, and `git diff` review summary. Review changes with `git diff` before committing.
 
 ## Inspect and resume
 
@@ -40,7 +40,7 @@ After every model call, report the exact `project_root` and `conversation_id`. A
 - Use `antigravity_list_sessions` for project delegation history.
 - Use `antigravity_sync_conversation` to pull newly added visible AGY CLI messages without calling a model.
 - Use `antigravity_get_transcript` when the user asks Codex to read or summarize the visible AGY conversation.
-- Use `antigravity_list_runs` and `antigravity_get_run` for isolated implementation audits.
+- Use `antigravity_list_runs` and `antigravity_get_run` for implementation audits.
 - Tell the user they can inspect a conversation with `agy --conversation=<conversation_id>`.
 
 ## Disable AGY
@@ -51,9 +51,8 @@ When the user asks to disable, unload, revoke, or stop AGY for the current proje
 
 - Never enable AGY based only on task complexity or convenience.
 - Never grant a broader path than the exact current project root.
-- Never add AGY write, command, URL, or MCP permissions.
-- Never use dangerous auto-approval flags.
-- Never apply isolated changes to source without Codex review and appropriate user authorization.
-- Never enable non-`none` verification without explicit user risk acceptance. Verification commands execute code from the AGY-influenced isolated workspace and are not an OS sandbox.
+- Never add AGY command, URL, or MCP permissions unless explicitly configured.
+- Review AGY workspace modifications using `git diff` before committing.
+- Never enable non-`none` verification without explicit user risk acceptance. Verification commands execute code from the project workspace.
 - Never request, expose, reconstruct, or persist AGY private thinking or chain-of-thought. Use only visible messages, final answers, and sanitized tool traces.
 - Transcript synchronization is on demand. Avoid concurrent sends from Codex and an interactive AGY CLI in the same conversation.

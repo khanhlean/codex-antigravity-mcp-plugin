@@ -151,6 +151,7 @@ export function buildAgyArgs({
   mode = "plan",
   outputFormat = "json",
   disableSlashCommands = true,
+  dangerouslySkipPermissions = false,
   jsonSchema
 }) {
   const args = [
@@ -164,6 +165,9 @@ export function buildAgyArgs({
   ];
   if (disableSlashCommands && mode !== "plan") {
     args.push("--disable-slash-commands");
+  }
+  if (dangerouslySkipPermissions) {
+    args.push("--dangerously-skip-permissions");
   }
   if (sandbox) args.push("--sandbox");
   if (jsonSchema) args.push("--json-schema", JSON.stringify(jsonSchema));
@@ -368,6 +372,7 @@ export async function runAgy({
   sandbox = isAgySandboxEnabled(),
   extraEnv = {},
   jsonSchema,
+  dangerouslySkipPermissions = false,
   allowedRoots
 }) {
   const cwd = await resolveAllowedDirectory(workingDirectory, allowedRoots);
@@ -385,6 +390,7 @@ export async function runAgy({
     mode,
     outputFormat,
     sandbox,
+    dangerouslySkipPermissions,
     jsonSchema
   });
 

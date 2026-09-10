@@ -333,6 +333,119 @@ export async function applyStructuredOperations(isolatedWorkspace, structuredOut
   return applied;
 }
 
+export async function runGitCommand(args, cwd, timeoutSeconds = 15) {
+  return await new Promise((resolve) => {
+    const stdout = [];
+    const stderr = [];
+    let settled = false;
+    const child = spawn("git", args, {
+      cwd,
+      env: buildSafeChildEnv(),
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      void terminateProcessTree(child);
+      resolve({ ok: false, output: "", error: "timeout" });
+    }, timeoutSeconds * 1000);
+
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, output: "", error: error.message });
+    });
+    child.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const out = Buffer.concat(stdout).toString("utf8");
+      if (exitCode === 0) {
+        resolve({ ok: true, output: out });
+      } else {
+        resolve({ ok: false, output: out, exitCode });
+      }
+    });
+  });
+}
+
+export function parseGitStatus(statusOutput) {
+  const entries = [];
+  for (const rawLine of statusOutput.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line || line.length < 3) continue;
+    const code = line.slice(0, 2);
+    let filePath = line.slice(3).trim();
+    if (filePath.includes(" -> ")) {
+      filePath = filePath.split(" -> ")[1].trim();
+    }
+    if (filePath.startsWith('"') && filePath.endsWith('"')) {
+      filePath = filePath.slice(1, -1);
+    }
+    let status = "modified";
+    if (code.includes("A") || code.includes("?")) {
+      status = "added";
+    } else if (code.includes("D")) {
+      status = "deleted";
+    }
+    const normalized = path.normalize(filePath).replace(/\\/g, "/");
+    entries.push({ path: normalized, status, code: code.trim() });
+  }
+  return entries;
+}
+
+export function diffGitStatus(beforeList, afterList) {
+  const beforeMap = new Map(beforeList.map((item) => [item.path, item.code]));
+  const result = [];
+  for (const item of afterList) {
+    const prevCode = beforeMap.get(item.path);
+    if (prevCode === undefined || prevCode !== item.code) {
+      result.push({ path: item.path, status: item.status });
+    }
+  }
+  for (const item of beforeList) {
+    if (!afterList.some((after) => after.path === item.path)) {
+      result.push({ path: item.path, status: "deleted" });
+    }
+  }
+  return result.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function extractFilesFromEvents(events, projectRoot) {
+  const fileMap = new Map();
+  const editToolNames = new Set([
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "sed_file",
+    "notebook_edit"
+  ]);
+  for (const event of events || []) {
+    const update = event?.step_update;
+    if (update?.step_type === "tool" && editToolNames.has(update?.tool_name)) {
+      const params = update.tool_info?.parameters;
+      const target = params?.TargetFile || params?.target_file || params?.path || params?.FilePath;
+      if (typeof target === "string") {
+        const relative = path.relative(projectRoot, path.resolve(projectRoot, target));
+        if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+          const norm = path.normalize(relative);
+          fileMap.set(norm, {
+            path: norm,
+            status: update.tool_name === "write_to_file" ? "added" : "modified"
+          });
+        }
+      }
+    }
+  }
+  return [...fileMap.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export async function executeIsolated({
   task,
   projectRoot,
@@ -359,28 +472,28 @@ export async function executeIsolated({
   await mkdir(runsRoot, { recursive: true });
   const runId = createRunId();
   const runDirectory = path.join(runsRoot, runId);
-  const isolatedWorkspace = path.join(runDirectory, "workspace");
   await mkdir(runDirectory, { recursive: false });
 
   const startedAt = new Date().toISOString();
-  await copyProject(source, isolatedWorkspace);
-  const before = await snapshotFiles(isolatedWorkspace);
+  const beforeGit = await runGitCommand(["status", "--porcelain", "-uall"], source);
+  const beforeStatusList = beforeGit.ok ? parseGitStatus(beforeGit.output) : [];
+
   await writeJson(path.join(runDirectory, "metadata.json"), {
     runId,
     status: "running",
     startedAt,
     source,
-    isolatedWorkspace,
+    isolatedWorkspace: source,
     task,
     requestedConversationId: conversationId || null,
     verification
   });
 
   const delegatedPrompt = [
-    "You are a delegated implementation planner. Inspect the project read-only and produce exact replacement contents for every file that must be changed or created.",
+    "You are a delegated implementation worker.",
     `The project root is exactly: ${source}`,
-    "Every operation path must be relative to that project root. Never include absolute paths, parent traversal, secret files, dependency directories, build outputs, or deletions.",
-    "Return only the structured result required by the provided JSON schema. Each operation must contain the complete final UTF-8 text content of that file; omit unchanged files.",
+    "Make the requested changes directly in this workspace. Create or edit files as needed.",
+    "Be precise, inspect code before modifying, and summarize your changes when done.",
     `Task:\n${task}`
   ].join("\n\n");
 
@@ -394,10 +507,10 @@ export async function executeIsolated({
       effort,
       timeoutSeconds,
       maxResponseChars,
-      mode: "plan",
+      mode: "accept-edits",
       outputFormat: "stream-json",
       sandbox: false,
-      jsonSchema: PATCH_SCHEMA,
+      dangerouslySkipPermissions: true,
       allowedRoots: [source]
     });
   } catch (error) {
@@ -424,10 +537,15 @@ export async function executeIsolated({
   }
 
   let appliedOperations = [];
-  if (agyResult.ok) {
+  if (
+    agyResult.ok &&
+    agyResult.structuredOutput &&
+    Array.isArray(agyResult.structuredOutput.operations) &&
+    agyResult.structuredOutput.operations.length > 0
+  ) {
     try {
       appliedOperations = await applyStructuredOperations(
-        isolatedWorkspace,
+        source,
         agyResult.structuredOutput
       );
     } catch (error) {
@@ -437,11 +555,28 @@ export async function executeIsolated({
     }
   }
 
-  const after = await snapshotFiles(isolatedWorkspace);
-  const changes = collectChanges(before, after);
+  let changes = [];
+  let gitDiffStat = null;
+  const afterGit = await runGitCommand(["status", "--porcelain", "-uall"], source);
+  if (afterGit.ok) {
+    changes = diffGitStatus(beforeStatusList, parseGitStatus(afterGit.output));
+    const diffStatResult = await runGitCommand(["diff", "--stat"], source);
+    if (diffStatResult.ok) {
+      gitDiffStat = diffStatResult.output.trim() || null;
+    }
+  } else if (appliedOperations.length > 0) {
+    changes = appliedOperations.map((p) => ({ path: p, status: "modified" }));
+  } else {
+    changes = extractFilesFromEvents(agyResult.events, source);
+  }
+
+  if (!appliedOperations.length && changes.length > 0) {
+    appliedOperations = changes.map((c) => c.path);
+  }
+
   const verificationResult = await runVerification(
     verification,
-    isolatedWorkspace,
+    source,
     verificationTimeoutSeconds
   );
   const completedAt = new Date().toISOString();
@@ -466,7 +601,7 @@ export async function executeIsolated({
     startedAt,
     completedAt,
     source,
-    isolatedWorkspace,
+    isolatedWorkspace: source,
     task,
     requestedConversationId: conversationId || null,
     returnedConversationId,
@@ -481,6 +616,9 @@ export async function executeIsolated({
     warnings: agyResult.warnings || [],
     appliedOperations,
     changes,
+    gitDiffStat,
+    reviewGuidance:
+      "Changes have been written directly to the workspace. Review them using git diff or IDE Source Control before committing.",
     verification: verificationResult,
     auditLog: path.join(runDirectory, "events.jsonl"),
     responseFile: path.join(runDirectory, "response.md")

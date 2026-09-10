@@ -67,7 +67,7 @@ try {
     arguments: {}
   });
   assert.notEqual(health.isError, true);
-  assert.match(JSON.stringify(health.content), /1\.1\.\d+/);
+  assert.match(JSON.stringify(health.content), /\d+\.\d+\.\d+/);
 
   if (!useLiveProject) {
     const initial = await client.callTool({

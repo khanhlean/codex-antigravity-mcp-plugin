@@ -2,7 +2,7 @@
 
 A controlled Model Context Protocol bridge that lets OpenAI Codex delegate work to Google Antigravity CLI on demand.
 
-The bridge stays idle until a user explicitly asks Codex to use AGY. It then authorizes only the exact current project, keeps a project-scoped conversation, synchronizes user-visible dialogue, and confines generated implementation changes to an isolated copy.
+The bridge stays idle until a user explicitly asks Codex to use AGY. It then authorizes only the exact current project, keeps a project-scoped conversation, synchronizes user-visible dialogue, and performs implementation directly in the workspace so changes can be easily reviewed with git diff.
 
 > This is an independent community project. It is not affiliated with or endorsed by Google or OpenAI.
 
@@ -12,11 +12,11 @@ The bridge stays idle until a user explicitly asks Codex to use AGY. It then aut
 
 - Explicit opt-in: Codex cannot enable or call AGY unless the user asks for it.
 - Exact project scope: broad roots and system directories are rejected.
-- Read-only delegation by default: no AGY write, command, URL, or MCP permission is granted.
+- Read-only delegation by default: no AGY command, URL, or MCP permission is granted.
 - Project conversations: active conversation IDs and delegation history survive new Codex tasks.
 - Visible transcript sync: messages entered through AGY CLI become available to Codex on the next sync.
 - Private-reasoning filter: thinking/reasoning fields, system messages, and checkpoints are excluded before persistence or MCP return.
-- Isolated implementation: validated full-file replacements are applied only to a disposable project copy.
+- Direct implementation & Git diff review: changes are applied directly to the project workspace and reviewed using git diff without workspace copying bottlenecks or file count limits.
 - Auditable runs: responses, changed-file manifests, verification output, and sanitized tool events are retained locally.
 
 ## Requirements
@@ -152,14 +152,14 @@ Restart Codex after changing MCP configuration or installing the Skill.
 2. Work normally; the AGY bridge remains idle.
 3. Explicitly ask: `Load AGY and review this project.`
 4. Codex enables read access for that exact project and starts or reuses its AGY conversation.
-5. Codex delegates analysis, review, continuation, or isolated implementation as appropriate.
+5. Codex delegates analysis, review, continuation, or implementation as appropriate.
 6. Ask `Disable AGY for this project` to revoke the exact project permission while preserving local audit history.
 
 For a follow-up implementation of the same feature, pass the previous run's
 `conversation_id` to `antigravity_execute`. The bridge validates that the conversation
 belongs to the exact project and continues it with `agy --conversation`. Omit the field
-for a new, unrelated implementation. Every execution still receives a new isolated run
-workspace and never merges automatically.
+for a new, unrelated implementation. Changes are applied directly to the workspace,
+and can be reviewed through `git diff` before committing.
 
 To inspect or participate in the same conversation directly:
 
@@ -176,7 +176,7 @@ After sending messages through AGY CLI, ask Codex to `sync the AGY conversation`
 | Health and lifecycle | `antigravity_health`, `antigravity_project_status`, `antigravity_enable_project`, `antigravity_disable_project` |
 | Conversations | `antigravity_start_session`, `antigravity_get_active_session`, `antigravity_list_sessions`, `antigravity_ask`, `antigravity_continue`, `antigravity_review` |
 | Visible transcripts | `antigravity_sync_conversation`, `antigravity_get_transcript` |
-| Isolated implementation | `antigravity_execute`, `antigravity_list_runs`, `antigravity_get_run` |
+| Implementation | `antigravity_execute`, `antigravity_list_runs`, `antigravity_get_run` |
 
 `antigravity_execute` accepts an optional `conversation_id`. Reusing it avoids opening a
 new AGY conversation for iterative work on the same feature. Invalid, unregistered, and
